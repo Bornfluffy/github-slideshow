@@ -1,0 +1,557 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="description" content="A study timer with customizable focus and break intervals, pause and resume, interval notifications, and a log of completed sessions.">
+<style>
+/* base reset, matching the hosted artifact's wrapper */
+:root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);color-scheme:light}
+body{margin:0;font-size:14px}
+img{max-width:100%}
+[hidden]{display:none!important}
+</style>
+<title>Interval Study Timer</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: dial and controls side by side on wide screens, stacked on phones; session ledger below. */
+:root{
+  --bg:#f4f6f5;
+  --surface:#ffffff;
+  --ink:#141b1a;
+  --muted:#5d6b69;
+  --line:#dbe3e1;
+  --focus:#136f63;
+  --break:#b06a1d;
+  --track:#e3eae8;
+  --font-display:"Space Grotesk","Helvetica Neue",Arial,sans-serif;
+  --font-body:"Inter",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --font-mono:"IBM Plex Mono",ui-monospace,"SF Mono",Menlo,monospace;
+  --shadow:0 1px 2px rgba(20,27,26,.06),0 8px 24px -16px rgba(20,27,26,.25);
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --bg:#101614;--surface:#18201e;--ink:#e9efed;--muted:#9aa9a6;--line:#2a3533;
+    --focus:#4cc0ae;--break:#e6a356;--track:#243030;
+    --shadow:0 1px 2px rgba(0,0,0,.4),0 10px 28px -18px rgba(0,0,0,.8);
+    color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#101614;--surface:#18201e;--ink:#e9efed;--muted:#9aa9a6;--line:#2a3533;
+  --focus:#4cc0ae;--break:#e6a356;--track:#243030;
+  --shadow:0 1px 2px rgba(0,0,0,.4),0 10px 28px -18px rgba(0,0,0,.8);
+  color-scheme:dark;
+}
+*,*::before,*::after{box-sizing:border-box}
+html,body{min-height:100%}
+body{background:var(--bg);color:var(--ink);font-family:var(--font-body);line-height:1.5;-webkit-font-smoothing:antialiased}
+.wrap{max-width:1040px;margin:0 auto;padding-block:28px 56px;
+  padding-left:max(16px,env(safe-area-inset-left,0px));
+  padding-right:max(16px,env(safe-area-inset-right,0px));
+  display:flex;flex-direction:column;gap:24px}
+header{display:flex;flex-wrap:wrap;align-items:baseline;gap:8px 16px;justify-content:space-between}
+h1{font-family:var(--font-display);font-size:clamp(1.5rem,1.2rem + 1.4vw,2rem);margin:0;letter-spacing:-.02em;text-wrap:balance}
+.sub{color:var(--muted);font-size:.9rem;margin:0}
+.grid{display:grid;grid-template-columns:minmax(0,1.05fr) minmax(0,1fr);gap:20px;align-items:start}
+@media (max-width:760px){.grid{grid-template-columns:minmax(0,1fr)}}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow);padding:20px;min-width:0}
+.card h2{font-family:var(--font-display);font-size:.78rem;text-transform:uppercase;letter-spacing:.09em;color:var(--muted);margin:0 0 14px}
+/* dial */
+.dial{display:flex;flex-direction:column;align-items:center;gap:14px}
+.phase{display:inline-flex;align-items:center;gap:8px;font-size:.8rem;font-weight:600;letter-spacing:.06em;text-transform:uppercase;
+  padding:5px 12px;border-radius:999px;border:1px solid currentColor;color:var(--accent-now,var(--focus))}
+.phase .dot{width:8px;height:8px;border-radius:50%;background:currentColor}
+.ringbox{position:relative;width:100%;max-width:300px;aspect-ratio:1}
+.ringbox svg{width:100%;height:100%;display:block;transform:rotate(-90deg)}
+.ringbox .readout{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;text-align:center}
+#clock{font-family:var(--font-mono);font-variant-numeric:tabular-nums;font-size:clamp(2.6rem,2rem + 5vw,3.5rem);font-weight:500;letter-spacing:-.03em;line-height:1}
+.cycle{font-size:.78rem;color:var(--muted);letter-spacing:.04em}
+.controls{display:flex;flex-wrap:wrap;gap:10px;justify-content:center;width:100%}
+button{font:inherit;font-weight:600;cursor:pointer;border-radius:10px;border:1px solid var(--line);background:var(--surface);color:var(--ink);padding:10px 16px;transition:transform .12s ease,background .12s ease,border-color .12s ease}
+button:hover{border-color:var(--accent-now,var(--focus))}
+button:active{transform:translateY(1px)}
+button:focus-visible{outline:2px solid var(--accent-now,var(--focus));outline-offset:2px}
+.primary{background:var(--accent-now,var(--focus));border-color:var(--accent-now,var(--focus));color:#fff;min-width:124px}
+:root[data-theme="dark"] .primary,.dark-text .primary{color:#0d1413}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .primary{color:#0d1413}}
+.task{width:100%}
+label.field{display:flex;flex-direction:column;gap:6px;font-size:.82rem;color:var(--muted);min-width:0}
+input[type="text"],input[type="number"]{font:inherit;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:9px;padding:9px 11px;width:100%;min-width:0}
+input[type="number"]{font-family:var(--font-mono);font-variant-numeric:tabular-nums}
+input:focus-visible{outline:2px solid var(--accent-now,var(--focus));outline-offset:1px}
+.settings-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px}
+.toggles{display:flex;flex-direction:column;gap:9px;margin-top:16px;padding-top:16px;border-top:1px solid var(--line)}
+.toggle{display:flex;align-items:center;gap:9px;font-size:.88rem}
+.toggle input{accent-color:var(--focus);width:16px;height:16px}
+.presets{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}
+.presets button{font-size:.8rem;padding:6px 11px;font-weight:500;color:var(--muted)}
+/* banner */
+#banner{display:flex;align-items:flex-start;gap:12px;border-radius:14px;padding:13px 15px;border:1px solid var(--accent-now,var(--focus));
+  background:color-mix(in srgb,var(--accent-now,var(--focus)) 10%,var(--surface));font-size:.92rem}
+#banner strong{font-family:var(--font-display)}
+#banner p{margin:2px 0 0;color:var(--muted)}
+#banner button{margin-left:auto;padding:4px 9px;font-size:.78rem;font-weight:500}
+/* log */
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(104px,1fr));gap:12px;margin-bottom:16px}
+.stat{border:1px solid var(--line);border-radius:12px;padding:11px 13px;background:var(--bg)}
+.stat .n{font-family:var(--font-mono);font-variant-numeric:tabular-nums;font-size:1.45rem;font-weight:500;display:block;line-height:1.15}
+.stat .k{font-size:.72rem;text-transform:uppercase;letter-spacing:.07em;color:var(--muted)}
+.logwrap{overflow-x:auto}
+table{width:100%;min-width:380px;border-collapse:collapse;font-size:.88rem}
+th{text-align:left;font-size:.7rem;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);font-weight:600;padding:0 10px 8px 0;white-space:nowrap}
+td{padding:9px 10px 9px 0;border-top:1px solid var(--line);vertical-align:top}
+td.num{font-family:var(--font-mono);font-variant-numeric:tabular-nums;white-space:nowrap}
+td.task-cell{word-break:break-word}
+.empty{color:var(--muted);font-size:.9rem;border:1px dashed var(--line);border-radius:12px;padding:16px;text-align:center}
+.logfoot{display:flex;flex-wrap:wrap;gap:10px;justify-content:space-between;align-items:center;margin-top:14px;font-size:.8rem;color:var(--muted)}
+.ghost{font-weight:500;font-size:.8rem;padding:6px 11px;color:var(--muted)}
+footer{color:var(--muted);font-size:.78rem;text-align:center}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <header>
+    <div>
+      <h1>Interval Study Timer</h1>
+      <p class="sub">Focus in timed intervals, break between them, and keep a record of what you finished.</p>
+    </div>
+    <button id="themeBtn" class="ghost" type="button" aria-label="Switch colour theme">Theme</button>
+  </header>
+
+  <div id="banner" hidden role="status" aria-live="polite">
+    <div><strong id="bannerTitle">Ready</strong><p id="bannerBody"></p></div>
+    <button id="bannerClose" type="button">Dismiss</button>
+  </div>
+
+  <div class="grid">
+    <section class="card dial" aria-labelledby="dialHead">
+      <h2 id="dialHead" class="sr-head" style="align-self:flex-start">Current interval</h2>
+      <span class="phase" id="phase"><span class="dot"></span><span id="phaseName">Focus</span></span>
+      <div class="ringbox">
+        <svg viewBox="0 0 280 280" aria-hidden="true">
+          <circle cx="140" cy="140" r="124" fill="none" stroke="var(--track)" stroke-width="14"></circle>
+          <circle id="ring" cx="140" cy="140" r="124" fill="none" stroke="var(--accent-now,var(--focus))" stroke-width="14"
+                  stroke-linecap="round" stroke-dasharray="779.11" stroke-dashoffset="0"></circle>
+        </svg>
+        <div class="readout">
+          <div id="clock" role="timer" aria-live="off">25:00</div>
+          <div class="cycle" id="cycleLabel">Interval 1 of 4</div>
+        </div>
+      </div>
+      <div class="controls">
+        <button class="primary" id="startBtn" type="button">Start focus</button>
+        <button id="skipBtn" type="button">Skip ahead</button>
+        <button id="resetBtn" type="button">Reset</button>
+      </div>
+      <label class="field task" for="taskInput">What are you working on?
+        <input id="taskInput" type="text" placeholder="e.g. Organic chemistry, ch. 7 problems" maxlength="90" autocomplete="off">
+      </label>
+    </section>
+
+    <section class="card" aria-labelledby="setHead">
+      <h2 id="setHead">Interval lengths</h2>
+      <div class="settings-grid">
+        <label class="field" for="focusMin">Focus (min)<input id="focusMin" type="number" min="1" max="180" step="1" value="25"></label>
+        <label class="field" for="breakMin">Break (min)<input id="breakMin" type="number" min="1" max="60" step="1" value="5"></label>
+        <label class="field" for="longMin">Long break (min)<input id="longMin" type="number" min="1" max="90" step="1" value="15"></label>
+        <label class="field" for="cycleLen">Focus blocks per long break<input id="cycleLen" type="number" min="1" max="12" step="1" value="4"></label>
+      </div>
+      <div class="presets">
+        <button data-preset="25,5,15,4" type="button">Classic 25 / 5</button>
+        <button data-preset="50,10,20,2" type="button">Deep work 50 / 10</button>
+        <button data-preset="15,3,10,4" type="button">Short bursts 15 / 3</button>
+      </div>
+      <div class="toggles">
+        <label class="toggle"><input id="optSound" type="checkbox" checked> Chime at the start and end of every interval</label>
+        <label class="toggle"><input id="optAuto" type="checkbox" checked> Start the next interval automatically</label>
+        <label class="toggle"><input id="optLog" type="checkbox" checked> Log each focus interval I complete</label>
+        <label class="toggle"><input id="optDesktop" type="checkbox"> Desktop notifications <span id="notifyNote" style="color:var(--muted);font-size:.8rem"></span></label>
+      </div>
+    </section>
+  </div>
+
+  <section class="card" aria-labelledby="logHead">
+    <h2 id="logHead">Session log</h2>
+    <div class="stats">
+      <div class="stat"><span class="n" id="statToday">0</span><span class="k">Intervals today</span></div>
+      <div class="stat"><span class="n" id="statTodayMin">0m</span><span class="k">Focused today</span></div>
+      <div class="stat"><span class="n" id="statAll">0</span><span class="k">Intervals logged</span></div>
+      <div class="stat"><span class="n" id="statAllMin">0m</span><span class="k">Total focused</span></div>
+    </div>
+    <div id="logEmpty" class="empty">No focus intervals logged yet. Finish one and it lands here with its length and the task you named.</div>
+    <div class="logwrap" id="logWrap" hidden>
+      <table>
+        <thead><tr><th>Finished</th><th>Length</th><th>Task</th><th></th></tr></thead>
+        <tbody id="logBody"></tbody>
+      </table>
+    </div>
+    <div class="logfoot">
+      <span id="logNote">Entries stay in this browser.</span>
+      <span style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="ghost" id="addManual" type="button">Add an interval by hand</button>
+        <button class="ghost" id="clearLog" type="button">Clear log</button>
+      </span>
+    </div>
+  </section>
+
+  <footer>Timing is wall-clock based, so the countdown stays accurate even if this tab sits in the background.</footer>
+</div>
+
+<script>
+(function(){
+  "use strict";
+  var LS_SET="ist.settings.v1", LS_LOG="ist.log.v1", LS_THEME="ist.theme.v1";
+  var MIN=60000;
+
+  function read(key,fallback){
+    try{var raw=localStorage.getItem(key);return raw?JSON.parse(raw):fallback;}catch(e){return fallback;}
+  }
+  function write(key,value){
+    try{localStorage.setItem(key,JSON.stringify(value));}catch(e){/* private window or blocked storage */}
+  }
+
+  var defaults={focus:25,brk:5,long:15,cycle:4,sound:true,auto:true,log:true,desktop:false};
+  var cfg=Object.assign({},defaults,read(LS_SET,{}));
+  var log=read(LS_LOG,[]);
+  if(!Array.isArray(log)) log=[];
+
+  var S={phase:"focus",running:false,remaining:cfg.focus*MIN,total:cfg.focus*MIN,endAt:null,done:0,task:""};
+
+  var el=function(id){return document.getElementById(id);};
+  var clock=el("clock"), ring=el("ring"), phaseEl=el("phase"), phaseName=el("phaseName"),
+      cycleLabel=el("cycleLabel"), startBtn=el("startBtn"), skipBtn=el("skipBtn"), resetBtn=el("resetBtn"),
+      taskInput=el("taskInput"), banner=el("banner"), bannerTitle=el("bannerTitle"), bannerBody=el("bannerBody");
+  var CIRC=2*Math.PI*124;
+  ring.setAttribute("stroke-dasharray",CIRC.toFixed(2));
+
+  var LABEL={focus:"Focus",brk:"Break",long:"Long break"};
+
+  /* ---------- formatting ---------- */
+  function mmss(ms){
+    var t=Math.max(0,Math.round(ms/1000));
+    var m=Math.floor(t/60), s=t%60;
+    return (m<10?"0":"")+m+":"+(s<10?"0":"")+s;
+  }
+  function human(mins){
+    mins=Math.round(mins);
+    if(mins<60) return mins+"m";
+    var h=Math.floor(mins/60), m=mins%60;
+    return m?h+"h "+m+"m":h+"h";
+  }
+  function phaseMinutes(p){ return p==="focus"?cfg.focus:p==="brk"?cfg.brk:cfg.long; }
+  function mins(n){ return n+" minute"+(n===1?"":"s"); }
+
+  /* ---------- sound + notifications ---------- */
+  var actx=null;
+  function chime(kind){
+    if(!cfg.sound) return;
+    try{
+      var Ctx=window.AudioContext||window.webkitAudioContext;
+      if(!Ctx) return;
+      if(!actx) actx=new Ctx();
+      if(actx.state==="suspended") actx.resume();
+      var notes=kind==="end"?[660,880]:[523.25];
+      notes.forEach(function(f,i){
+        var o=actx.createOscillator(), g=actx.createGain(), t0=actx.currentTime+i*0.18;
+        o.type="sine"; o.frequency.value=f;
+        g.gain.setValueAtTime(0,t0);
+        g.gain.linearRampToValueAtTime(0.18,t0+0.02);
+        g.gain.exponentialRampToValueAtTime(0.0001,t0+0.5);
+        o.connect(g); g.connect(actx.destination); o.start(t0); o.stop(t0+0.55);
+      });
+    }catch(e){/* audio unavailable */}
+  }
+  function desktopNote(title,body){
+    if(!cfg.desktop) return;
+    try{
+      if(typeof Notification!=="undefined" && Notification.permission==="granted"){
+        new Notification(title,{body:body,tag:"interval-study-timer",renotify:true});
+      }
+    }catch(e){/* notifications unavailable */}
+  }
+  function notify(title,body,kind){
+    bannerTitle.textContent=title;
+    bannerBody.textContent=body;
+    banner.hidden=false;
+    chime(kind);
+    desktopNote(title,body);
+  }
+
+  /* ---------- rendering ---------- */
+  function accent(){ return S.phase==="focus"?"var(--focus)":"var(--break)"; }
+  function render(){
+    var left=S.running&&S.endAt?S.endAt-Date.now():S.remaining;
+    if(left<0) left=0;
+    clock.textContent=mmss(left);
+    var frac=S.total>0?Math.min(1,Math.max(0,1-left/S.total)):0;
+    ring.setAttribute("stroke-dashoffset",(CIRC*frac).toFixed(2));
+    document.documentElement.style.setProperty("--accent-now",accent());
+    phaseName.textContent=LABEL[S.phase];
+    var n=(S.done%cfg.cycle)+1;
+    cycleLabel.textContent=S.phase==="focus"
+      ? "Focus block "+n+" of "+cfg.cycle
+      : (S.phase==="long"?"Long break after "+cfg.cycle+" blocks":"Break between blocks");
+    startBtn.textContent=S.running?"Pause":(left<S.total?"Resume":"Start "+LABEL[S.phase].toLowerCase());
+    document.title=(S.running?mmss(left)+" · "+LABEL[S.phase]+" — ":"")+"Interval Study Timer";
+  }
+
+  function renderLog(){
+    var body=el("logBody"); body.innerHTML="";
+    var today=new Date(); today.setHours(0,0,0,0);
+    var tCount=0,tMin=0,aMin=0;
+    log.forEach(function(e){
+      aMin+=e.minutes;
+      if(e.endedAt>=today.getTime()){ tCount++; tMin+=e.minutes; }
+    });
+    el("statToday").textContent=tCount;
+    el("statTodayMin").textContent=human(tMin);
+    el("statAll").textContent=log.length;
+    el("statAllMin").textContent=human(aMin);
+
+    el("logEmpty").hidden=log.length>0;
+    el("logWrap").hidden=log.length===0;
+
+    log.slice().sort(function(a,b){return b.endedAt-a.endedAt;}).slice(0,100).forEach(function(e){
+      var tr=document.createElement("tr");
+      var d=new Date(e.endedAt);
+      var when=d.toLocaleDateString(undefined,{month:"short",day:"numeric"})+", "+
+               d.toLocaleTimeString(undefined,{hour:"numeric",minute:"2-digit"});
+      var c1=document.createElement("td"); c1.className="num"; c1.textContent=when;
+      var c2=document.createElement("td"); c2.className="num"; c2.textContent=e.minutes+" min";
+      var c3=document.createElement("td"); c3.className="task-cell"; c3.textContent=e.task||"—";
+      var c4=document.createElement("td");
+      var del=document.createElement("button"); del.className="ghost"; del.type="button"; del.textContent="Remove";
+      del.setAttribute("aria-label","Remove the "+e.minutes+" minute interval from "+when);
+      del.addEventListener("click",function(){
+        log=log.filter(function(x){return x.id!==e.id;});
+        write(LS_LOG,log); renderLog();
+      });
+      c4.appendChild(del);
+      tr.append(c1,c2,c3,c4); body.appendChild(tr);
+    });
+  }
+
+  function addEntry(minutes,task,endedAt){
+    log.push({id:String(Date.now())+Math.random().toString(36).slice(2,7),
+              endedAt:endedAt||Date.now(),minutes:minutes,task:(task||"").trim()});
+    write(LS_LOG,log); renderLog();
+  }
+
+  /* ---------- timer engine (wall-clock, drift free) ---------- */
+  var tick=null;
+  function loop(){
+    if(!S.running) return;
+    var left=S.endAt-Date.now();
+    if(left<=0){ complete(); return; }
+    S.remaining=left; render();
+  }
+  function startLoop(){ if(tick) clearInterval(tick); tick=setInterval(loop,200); }
+  function stopLoop(){ if(tick){ clearInterval(tick); tick=null; } }
+
+  function setPhase(phase,announce){
+    S.phase=phase;
+    S.total=phaseMinutes(phase)*MIN;
+    S.remaining=S.total;
+    S.endAt=null;
+    if(announce) render();
+  }
+
+  function begin(){
+    S.task=taskInput.value;
+    S.running=true;
+    S.endAt=Date.now()+S.remaining;
+    startLoop();
+    var m=Math.round(S.remaining/MIN);
+    notify(LABEL[S.phase]+" started",
+      S.phase==="focus"
+        ? mins(m)+" of focus"+(S.task.trim()?" on "+S.task.trim():"")+". Break next."
+        : mins(m)+" away from the desk. Focus resumes after it.",
+      "start");
+    render();
+  }
+  function pause(){
+    S.remaining=Math.max(0,S.endAt-Date.now());
+    S.running=false; S.endAt=null; stopLoop();
+    bannerTitle.textContent="Paused at "+mmss(S.remaining);
+    bannerBody.textContent="The clock is holding. Press Resume to pick the interval back up.";
+    banner.hidden=false;
+    render();
+  }
+  function complete(){
+    S.running=false; S.endAt=null; stopLoop();
+    var finished=S.phase, m=Math.round(S.total/MIN);
+    if(finished==="focus"){
+      S.done++;
+      if(cfg.log) addEntry(m,S.task||taskInput.value,Date.now());
+    }
+    var next=finished==="focus" ? ((S.done%cfg.cycle===0)?"long":"brk") : "focus";
+    setPhase(next,false);
+    notify(LABEL[finished]+" finished",
+      finished==="focus"
+        ? mins(m)+" done"+(cfg.log?" and logged":"")+". Next up: "+LABEL[next].toLowerCase()+", "+mins(phaseMinutes(next))+"."
+        : "Break over. Next up: "+mins(phaseMinutes(next))+" of focus.",
+      "end");
+    if(cfg.auto) begin(); else render();
+  }
+
+  startBtn.addEventListener("click",function(){ S.running?pause():begin(); });
+  skipBtn.addEventListener("click",function(){
+    stopLoop(); S.running=false;
+    var finished=S.phase;
+    if(finished==="focus"){
+      var spent=Math.round((S.total-(S.endAt?Math.max(0,S.endAt-Date.now()):S.remaining))/MIN);
+      S.done++;
+      if(cfg.log&&spent>=1) addEntry(spent,S.task||taskInput.value,Date.now());
+    }
+    var next=finished==="focus"?((S.done%cfg.cycle===0)?"long":"brk"):"focus";
+    setPhase(next,false);
+    notify("Skipped to "+LABEL[next].toLowerCase(),
+      LABEL[finished]+" ended early. "+mins(phaseMinutes(next))+" of "+LABEL[next].toLowerCase()+" is ready.","end");
+    if(cfg.auto) begin(); else render();
+  });
+  resetBtn.addEventListener("click",function(){
+    stopLoop(); S.running=false; S.done=0;
+    setPhase("focus",false);
+    bannerTitle.textContent="Reset";
+    bannerBody.textContent="Back to a full "+cfg.focus+"-minute focus block. Nothing in the log was touched.";
+    banner.hidden=false;
+    render();
+  });
+  el("bannerClose").addEventListener("click",function(){ banner.hidden=true; });
+
+  /* ---------- settings ---------- */
+  function clampInput(input,min,max){
+    var v=parseInt(input.value,10);
+    if(isNaN(v)) v=min;
+    v=Math.min(max,Math.max(min,v));
+    input.value=v;
+    return v;
+  }
+  function bindNumber(id,key,min,max){
+    var input=el(id);
+    input.value=cfg[key];
+    input.addEventListener("change",function(){
+      cfg[key]=clampInput(input,min,max);
+      write(LS_SET,cfg);
+      if(!S.running && (
+          (key==="focus"&&S.phase==="focus")||(key==="brk"&&S.phase==="brk")||(key==="long"&&S.phase==="long"))){
+        setPhase(S.phase,false);
+      }
+      render();
+    });
+  }
+  bindNumber("focusMin","focus",1,180);
+  bindNumber("breakMin","brk",1,60);
+  bindNumber("longMin","long",1,90);
+  bindNumber("cycleLen","cycle",1,12);
+
+  function bindToggle(id,key,after){
+    var box=el(id); box.checked=!!cfg[key];
+    box.addEventListener("change",function(){
+      cfg[key]=box.checked; write(LS_SET,cfg);
+      if(after) after(box.checked);
+    });
+  }
+  bindToggle("optSound","sound",function(on){ if(on) chime("start"); });
+  bindToggle("optAuto","auto");
+  bindToggle("optLog","log");
+
+  var notifyNote=el("notifyNote");
+  bindToggle("optDesktop","desktop",function(on){
+    if(!on){ notifyNote.textContent=""; return; }
+    if(typeof Notification==="undefined"){
+      notifyNote.textContent="— not available here; the on-page banner and chime still fire.";
+      cfg.desktop=false; el("optDesktop").checked=false; write(LS_SET,cfg); return;
+    }
+    if(Notification.permission==="granted"){ notifyNote.textContent="— on."; return; }
+    try{
+      Notification.requestPermission().then(function(p){
+        if(p==="granted"){ notifyNote.textContent="— on."; }
+        else{
+          notifyNote.textContent="— blocked by the browser; banner and chime still fire.";
+          cfg.desktop=false; el("optDesktop").checked=false; write(LS_SET,cfg);
+        }
+      }).catch(function(){
+        notifyNote.textContent="— unavailable here; banner and chime still fire.";
+        cfg.desktop=false; el("optDesktop").checked=false; write(LS_SET,cfg);
+      });
+    }catch(e){
+      notifyNote.textContent="— unavailable here; banner and chime still fire.";
+      cfg.desktop=false; el("optDesktop").checked=false; write(LS_SET,cfg);
+    }
+  });
+  if(cfg.desktop){
+    try{ notifyNote.textContent=(typeof Notification!=="undefined"&&Notification.permission==="granted")?"— on.":"— waiting on browser permission."; }catch(e){}
+  }
+
+  Array.prototype.forEach.call(document.querySelectorAll("[data-preset]"),function(b){
+    b.addEventListener("click",function(){
+      var p=b.getAttribute("data-preset").split(",").map(Number);
+      cfg.focus=p[0]; cfg.brk=p[1]; cfg.long=p[2]; cfg.cycle=p[3];
+      el("focusMin").value=cfg.focus; el("breakMin").value=cfg.brk;
+      el("longMin").value=cfg.long; el("cycleLen").value=cfg.cycle;
+      write(LS_SET,cfg);
+      if(!S.running) setPhase(S.phase,false);
+      render();
+    });
+  });
+
+  /* ---------- log controls ---------- */
+  el("addManual").addEventListener("click",function(){
+    var m=cfg.focus;
+    addEntry(m,(taskInput.value||"Added by hand"),Date.now());
+    bannerTitle.textContent="Logged "+mins(m);
+    bannerBody.textContent="Added by hand. Remove it from the table if that was a mistake.";
+    banner.hidden=false;
+  });
+  var clearArmed=false, clearBtn=el("clearLog");
+  clearBtn.addEventListener("click",function(){
+    if(!clearArmed){
+      clearArmed=true;
+      clearBtn.textContent="Delete all "+log.length+" entries?";
+      el("logNote").textContent="Press again to delete every entry. This cannot be undone.";
+      setTimeout(function(){
+        clearArmed=false; clearBtn.textContent="Clear log";
+        el("logNote").textContent="Entries stay in this browser.";
+      },4000);
+      return;
+    }
+    log=[]; write(LS_LOG,log); renderLog();
+    clearArmed=false; clearBtn.textContent="Clear log";
+    el("logNote").textContent="Log cleared.";
+  });
+
+  /* ---------- theme ---------- */
+  var savedTheme=read(LS_THEME,null);
+  if(savedTheme==="dark"||savedTheme==="light") document.documentElement.setAttribute("data-theme",savedTheme);
+  el("themeBtn").addEventListener("click",function(){
+    var cur=document.documentElement.getAttribute("data-theme");
+    var isDark=cur?cur==="dark":(window.matchMedia&&window.matchMedia("(prefers-color-scheme: dark)").matches);
+    var next=isDark?"light":"dark";
+    document.documentElement.setAttribute("data-theme",next);
+    write(LS_THEME,next);
+  });
+
+  /* ---------- keyboard ---------- */
+  document.addEventListener("keydown",function(ev){
+    if(ev.target&&/^(INPUT|TEXTAREA|SELECT)$/.test(ev.target.tagName)) return;
+    if(ev.code==="Space"){ ev.preventDefault(); S.running?pause():begin(); }
+    else if(ev.key==="r"||ev.key==="R"){ resetBtn.click(); }
+    else if(ev.key==="s"||ev.key==="S"){ skipBtn.click(); }
+  });
+
+  document.addEventListener("visibilitychange",function(){ if(!document.hidden) loop(); });
+
+  /* ---------- boot ---------- */
+  setPhase("focus",false);
+  render(); renderLog();
+  bannerTitle.textContent="Ready when you are";
+  bannerBody.textContent=mins(cfg.focus)+" of focus, then a "+cfg.brk+"-minute break. Space starts and pauses, S skips, R resets.";
+  banner.hidden=false;
+})();
+</script>
+</body>
+</html>
